@@ -20,9 +20,9 @@ public class SysmonDetecter_ML {
 	 * Specify file name of mimikatz
 	 */
 	private static final String MIMIKATZ_MODULE_NAME = "HTran.exe";
-	private static Map<Integer, HashSet> log;
-	private static Map<Integer, HashSet> image;
-	private static HashSet<String> commonDLLlist = new HashSet<String>();
+	private static Map<Integer, LinkedHashSet> log;
+	private static Map<Integer, LinkedHashSet> image;
+	private static LinkedHashSet<String> commonDLLlist = new LinkedHashSet<String>();
 	private static String commonDLLlistFileName = null;
 	private static String outputDirName = null;
 	private static int falsePositiveCnt = 0;
@@ -54,9 +54,9 @@ public class SysmonDetecter_ML {
 					}
 					if (elem.startsWith("ImageLoaded:") && elem.endsWith("dll")) {
 						imageLoaded = parseElement(elem,": ");
-						HashSet<EventLogData> evSet;
+						LinkedHashSet<EventLogData> evSet;
 						if (null == log.get(processId)) {
-							evSet=new HashSet<EventLogData>();
+							evSet=new LinkedHashSet<EventLogData>();
 						} else {
 							evSet = log.get(processId);
 						}
@@ -97,18 +97,23 @@ public class SysmonDetecter_ML {
 			pw = new PrintWriter(bw);
 
 			for (Iterator it = map.entrySet().iterator(); it.hasNext();) {
-				Map.Entry<Integer, HashSet> entry = (Map.Entry<Integer, HashSet>) it.next();
+				Map.Entry<Integer, LinkedHashSet> entry = (Map.Entry<Integer, LinkedHashSet>) it.next();
 				Object processId = entry.getKey();
-				HashSet<EventLogData> evS = (HashSet<EventLogData>) entry.getValue();
-				HashSet<String> imageLoadedList = new HashSet<String>();
+				LinkedHashSet<EventLogData> evS = (LinkedHashSet<EventLogData>) entry.getValue();
+				LinkedHashSet<String> imageLoadedList = new LinkedHashSet<String>();
 				for (EventLogData ev: evS) {
 					imageLoadedList.add(ev.getImageLoaded());
 				}
 				boolean result = isMatchWithCommonDLLlist(commonDLLlistFileName, imageLoadedList);
+				List<String> list = new ArrayList<String>();
 				for (EventLogData ev: evS) {
 						String[] dlls=ev.getImageLoaded().split("\\\\");
 						String dllName=dlls[dlls.length-1];
-						pw.print(dllName + " ");
+						list.add(dllName);
+				}
+				Collections.reverse(list);
+				for (String s: list) {
+					pw.print(s + " ");
 				}
 				String label="normal";
 				if(result) {
@@ -116,8 +121,8 @@ public class SysmonDetecter_ML {
 				}
 				pw.println(", "+label);
 				boolean containsMimikatz = false;
-				HashSet<EventLogData> evSet = log.get(processId);
-				HashSet<String> imageList=new HashSet<String>();
+				LinkedHashSet<EventLogData> evSet = log.get(processId);
+				LinkedHashSet<String> imageList=new LinkedHashSet<String>();
 				for (EventLogData ev : evSet) {
 					String image=ev.getImage();
 					if (image.endsWith(MIMIKATZ_MODULE_NAME)) {
@@ -167,7 +172,7 @@ public class SysmonDetecter_ML {
 		}
 	}
 
-	private boolean isMatchWithCommonDLLlist(String commonDLLlistFileName, HashSet<String> imageLoadedList) {
+	private boolean isMatchWithCommonDLLlist(String commonDLLlistFileName, LinkedHashSet<String> imageLoadedList) {
 		boolean result = imageLoadedList.containsAll(commonDLLlist);
 		return result;
 	}
@@ -297,8 +302,8 @@ public class SysmonDetecter_ML {
 		if (args.length > 2) {
 			outputDirName = args[2];
 		}
-		log = new HashMap<Integer, HashSet>();
-		image = new HashMap<Integer, HashSet>();
+		log = new HashMap<Integer, LinkedHashSet>();
+		image = new HashMap<Integer, LinkedHashSet>();
 		sysmonParser.detelePrevFiles(outputDirName);
 		sysmonParser.readCommonDLLList();
 		sysmonParser.outputLoadedDlls(inputdirname);
