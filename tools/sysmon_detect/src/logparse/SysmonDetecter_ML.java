@@ -19,7 +19,10 @@ public class SysmonDetecter_ML {
 	 /**
 	 * Specify file name of mimikatz
 	 */
-	private static final String MIMIKATZ_MODULE_NAME = "HTran.exe";
+	//private static final String MIMIKATZ_MODULE_NAME = "HTran.exe";
+	//private static final String MIMIKATZ_MODULE_NAME = "mimikatz.exe";
+	private static final String MIMIKATZ_MODULE_NAME = "caidao.exe";
+	
 	private static Map<Integer, LinkedHashSet> log;
 	private static Map<Integer, LinkedHashSet> image;
 	private static LinkedHashSet<String> commonDLLlist = new LinkedHashSet<String>();
@@ -31,6 +34,9 @@ public class SysmonDetecter_ML {
 	private int totalProcessCnt=0;
 	private int processCntMimi=0;
 	private int detectedProcessCntMimi=0;
+	
+	private static boolean detectByExeName=false;
+	
 	private void readCSV(String filename) {
 
 		try {
@@ -101,8 +107,10 @@ public class SysmonDetecter_ML {
 				Object processId = entry.getKey();
 				LinkedHashSet<EventLogData> evS = (LinkedHashSet<EventLogData>) entry.getValue();
 				LinkedHashSet<String> imageLoadedList = new LinkedHashSet<String>();
+				
 				for (EventLogData ev: evS) {
 					imageLoadedList.add(ev.getImageLoaded());
+					
 				}
 				boolean result = isMatchWithCommonDLLlist(commonDLLlistFileName, imageLoadedList);
 				List<String> list = new ArrayList<String>();
@@ -119,12 +127,13 @@ public class SysmonDetecter_ML {
 				if(result) {
 					label="attack";
 				}
-				pw.println(", "+label);
+				pw.print(", "+label);
 				boolean containsMimikatz = false;
 				LinkedHashSet<EventLogData> evSet = log.get(processId);
 				LinkedHashSet<String> imageList=new LinkedHashSet<String>();
+				String image="";
 				for (EventLogData ev : evSet) {
-					String image=ev.getImage();
+					image=ev.getImage();
 					if (image.endsWith(MIMIKATZ_MODULE_NAME)) {
 						// mimikatz is executed
 						containsMimikatz = true;
@@ -133,8 +142,99 @@ public class SysmonDetecter_ML {
 						break;
 					}
 				}
+				pw.println(","+image);
 				// Matched with Common DLL List 
 				if (result) {
+					System.out.println("Detected. filename:"+filename+", Process ID:"+processId);
+					detectedProcessCntMimi++;
+					if (!containsMimikatz) {
+						// mimikatz is not executed
+						falsePositiveCnt++;
+					}
+				} else {
+					// Do not matched with Common DLL List 
+					if (containsMimikatz) {
+						// mimikatz is executed
+						/*
+						boolean mimiProcessExists=false;
+						for(String image : imageList){
+							if(image.endsWith(MIMIKATZ_MODULE_NAME)){
+								mimiProcessExists=true;
+								break;
+							}
+						}
+						*/
+						//if(!mimiProcessExists){
+						falseNegativeCnt++;
+						//}
+					}
+				}
+			}
+		} catch (IOException e) {
+			e.printStackTrace();
+		} finally {
+			pw.close();
+			try {
+				bw.close();
+			} catch (IOException e) {
+				e.printStackTrace();
+			}
+		}
+	}
+	
+	private void outputLoadedDLLsByName(Map map, String outputFileName) {
+		File file = new File(outputFileName);
+		String filename=file.getName();
+		FileWriter filewriter = null;
+		BufferedWriter bw = null;
+		PrintWriter pw = null;
+		try {
+			filewriter = new FileWriter(file,true);
+			bw = new BufferedWriter(filewriter);
+			pw = new PrintWriter(bw);
+
+			for (Iterator it = map.entrySet().iterator(); it.hasNext();) {
+				Map.Entry<Integer, LinkedHashSet> entry = (Map.Entry<Integer, LinkedHashSet>) it.next();
+				Object processId = entry.getKey();
+				LinkedHashSet<EventLogData> evS = (LinkedHashSet<EventLogData>) entry.getValue();
+				LinkedHashSet<String> imageLoadedList = new LinkedHashSet<String>();
+				
+				for (EventLogData ev: evS) {
+					imageLoadedList.add(ev.getImageLoaded());
+					
+				}
+				List<String> list = new ArrayList<String>();
+				for (EventLogData ev: evS) {
+						String[] dlls=ev.getImageLoaded().split("\\\\");
+						String dllName=dlls[dlls.length-1];
+						list.add(dllName);
+				}
+				Collections.reverse(list);
+				for (String s: list) {
+					pw.print(s + " ");
+				}
+				boolean containsMimikatz = false;
+				LinkedHashSet<EventLogData> evSet = log.get(processId);
+				LinkedHashSet<String> imageList=new LinkedHashSet<String>();
+				String image="";
+				for (EventLogData ev : evSet) {
+					image=ev.getImage();
+					if (image.endsWith(MIMIKATZ_MODULE_NAME)) {
+						// mimikatz is executed
+						containsMimikatz = true;
+						imageList.add(image);
+						processCntMimi++;
+						break;
+					}
+				}
+				String label="normal";
+				if(containsMimikatz) {
+					label="attack";
+				}
+				pw.print(", "+label);
+				pw.println(","+image);
+				 
+				if (label.equals("attack")) {
 					System.out.println("Detected. filename:"+filename+", Process ID:"+processId);
 					detectedProcessCntMimi++;
 					if (!containsMimikatz) {
@@ -190,7 +290,11 @@ public class SysmonDetecter_ML {
 			String filename = file.getName();
 			if (filename.endsWith(".csv")) {
 				readCSV(file.getAbsolutePath());
-				outputLoadedDLLs(log, this.outputDirName + "/" + "dlls.csv");
+				if(detectByExeName) {
+					outputLoadedDLLsByName(log, this.outputDirName + "/" + "dlls.csv");
+				} else {
+					outputLoadedDLLs(log, this.outputDirName + "/" + "dlls.csv");
+				}
 				totalProcessCnt=totalProcessCnt+=log.size();
 				log.clear();
 			} else {
@@ -302,6 +406,12 @@ public class SysmonDetecter_ML {
 		if (args.length > 2) {
 			outputDirName = args[2];
 		}
+		if (args.length > 4) {
+			String option = args[4];
+			if (option.equals("-exe")) {
+				detectByExeName=true;
+			}
+		}
 		log = new HashMap<Integer, LinkedHashSet>();
 		image = new HashMap<Integer, LinkedHashSet>();
 		sysmonParser.detelePrevFiles(outputDirName);
@@ -313,7 +423,6 @@ public class SysmonDetecter_ML {
 				sysmonParser.outputDetectionRate();
 			}
 		}
-
 	}
 
 }
